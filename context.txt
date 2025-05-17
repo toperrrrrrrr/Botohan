@@ -1,0 +1,60 @@
+
+You are an assistant helping me build a Slack app called `/botohan` that allows internal team members to vote and give feedback through customizable polls inside Slack. The app is for internal use only and should be simple, fast, and user-friendly. I’m working solo with no budget, but I will allocate at least 1 hour of focused work per day. I'm using an AI-assisted code-generation platform to help with development.
+
+Here’s the full project context and requirements:
+
+### 🎯 Product Vision
+"To create a simple Slack app that enables teams to quickly vote and collect opinions and feedback through customizable polls, streamlining decision-making and improving team collaboration."
+
+
+### ✅ SMART Goal (MVP Scope)
+Build and launch a Slack app invoked via `/botohan` that allows users to create and participate in polls using a Slack modal interface. It should include:
+
+- Modal with:
+  - Question input
+  - Question Type selector (Multiple Choice)
+  - Poll Options input (one choice per line)
+  - Privacy settings: Anonymous, Confidential, Non-anonymous
+  - Optional timer to schedule result posting
+
+- App functionality:
+  - Invitable to specific Slack channels
+  - Sends interactive poll messages
+  - Displays real-time results (if privacy allows)
+  - Automatically posts poll results once the timer ends
+  - Host can view analytics on votes (if not anonymous)
+
+Timeline: 3–4 weeks (1 hour/day)
+
+---
+
+### 👥 Target Users
+- A group of users in a Slack channel (internal team only)
+- Typical usage: internal surveys, feedback, decision-making
+
+---
+
+### 💡 Use Cases
+| Use Case              | Purpose                                      |
+|-----------------------|----------------------------------------------|
+| Quick Team Decision   | Vote on times, options, or project choices   |
+| Anonymous Feedback    | Candid input in retros or sensitive topics   |
+| Opinion Polls         | Gauge informal sentiment                     |
+| Idea Prioritization   | Rank or vote on ideas or suggestions         |
+
+---
+
+### 🧪 Success Measurement
+- No formal KPIs needed
+- Gather informal ratings (1 to 5 stars) and comments after each poll
+
+---
+
+Please use this full context to:
+- Help brainstorm ideas, features, or improvements
+- Help write or refine code snippets for Slack modals, API integration, scheduled tasks, or backend storage
+- Help debug Slack interactions (e.g., slash commands, modals, payload handling)
+- Help structure feedback and analytics for the poll host
+- Help maintain a step-by-step workflow to guide the project to MVP completion
+
+Always respond within the context of this internal Slack polling app project unless I explicitly start a new topic.
