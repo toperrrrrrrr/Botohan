@@ -14,7 +14,7 @@ A Slack bot that allows users to create and manage polls directly in their Slack
 
 1. Clone the repository
 ```bash
-git clone https://github.com/YOUR_USERNAME/Botohan.git
+git clone https://github.com/toperrrrrrrr/Botohan.git
 cd Botohan
 ```
 
