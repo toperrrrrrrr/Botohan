@@ -1,109 +1,42 @@
 # Botohan - Slack Polling App
 
-A simple Slack app that enables teams to quickly create and manage polls for collecting opinions and feedback.
+A Slack bot that allows users to create and manage polls directly in their Slack workspace.
 
 ## Features
 
-- Create polls using `/botohan` command
-- Support for multiple choice and agree-disagree questions
-- Privacy options (Anonymous/Non-anonymous/Confidential)
-- Optional poll duration timer
-- Real-time voting results
-- Post-poll analytics for hosts
+- Create polls using the `/botohan` command
+- Support for multiple choice and yes/no questions
+- Anonymous and public voting options
+- Real-time results updates
+- Timed polls with automatic closing
 
 ## Setup
 
-1. **Create a Slack App**
-   - Go to [api.slack.com/apps](https://api.slack.com/apps)
-   - Click "Create New App" and choose "From scratch"
-   - Name your app "Botohan" and select your workspace
-
-2. **Configure App Settings**
-   - Under "Basic Information", note down your "Signing Secret"
-   - Under "OAuth & Permissions":
-     - Add the following bot token scopes:
-       - `commands`
-       - `chat:write`
-       - `chat:write.public`
-       - `views:write`
-   - Install the app to your workspace and note down the "Bot User OAuth Token"
-
-3. **Set up Slash Command**
-   - Go to "Slash Commands" and create a new command
-   - Command: `/botohan`
-   - Request URL: `https://your-app-url/slack/events`
-   - Description: "Create a new poll"
-   - Usage hint: "Create a new poll"
-
-4. **Enable Interactivity**
-   - Go to "Interactivity & Shortcuts"
-   - Turn on Interactivity
-   - Set Request URL to: `https://your-app-url/slack/events`
-
-5. **Local Development**
-   ```bash
-   # Clone the repository
-   git clone <repository-url>
-   cd botohan
-
-   # Install dependencies
-   npm install
-
-   # Create .env file
-   cp .env.example .env
-   # Edit .env with your Slack credentials
-   ```
-
-6. **Environment Variables**
-   Create a `.env` file with:
-   ```
-   SLACK_BOT_TOKEN=xoxb-your-bot-token
-   SLACK_SIGNING_SECRET=your-signing-secret
-   PORT=3000
-   ```
-
-7. **Run the App**
-   ```bash
-   npm start
-   ```
-
-## Usage
-
-1. Type `/botohan` in any Slack channel
-2. Fill in the poll creation form:
-   - Question
-   - Poll type (Multiple Choice/Agree-Disagree)
-   - Options (for Multiple Choice)
-   - Privacy setting
-   - Optional duration timer
-
-3. Submit to create the poll
-4. Members can vote by clicking the buttons
-5. Results update in real-time (unless confidential)
-6. When the timer expires (if set), final results are posted
-
-## Development
-
-The app structure is organized as follows:
-```
-.
-├── src/
-│   ├── modals/
-│   │   └── pollModal.js    # Modal view builders
-│   └── handlers/
-│       └── pollHandler.js   # Command and interaction handlers
-├── index.js                 # Main application entry
-├── package.json            
-└── .env                     # Environment variables
+1. Clone the repository
+```bash
+git clone https://github.com/YOUR_USERNAME/Botohan.git
+cd Botohan
 ```
 
-## Contributing
+2. Install dependencies
+```bash
+npm install
+```
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+3. Create a `.env` file with your Slack credentials (see `.env.example` for required variables)
+
+4. Start the server
+```bash
+npm start
+```
+
+## Environment Variables
+
+Copy `.env.example` and create a `.env` file with your Slack credentials:
+
+- `SLACK_BOT_TOKEN`: Your Slack Bot User OAuth Token
+- `SLACK_SIGNING_SECRET`: Your Slack App Signing Secret
+- `PORT`: Port number for the server (default: 3000)
 
 ## License
 
