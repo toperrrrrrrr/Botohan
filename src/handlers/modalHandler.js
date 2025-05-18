@@ -28,7 +28,23 @@ const handleModalSubmission = async ({ ack, body, view, logger }) => {
     
     // Extract and process duration
     const rawDuration = values.duration_block?.duration_input?.value;
-    const duration = rawDuration ? parseInt(rawDuration, 10) : null;
+    const durationUnit = values.duration_unit_block?.duration_unit_select?.selected_option?.value || 'hours';
+    let duration = null;
+    
+    if (rawDuration) {
+      const durationValue = parseInt(rawDuration, 10);
+      switch (durationUnit) {
+        case 'seconds':
+          duration = durationValue / 3600; // Convert seconds to hours
+          break;
+        case 'minutes':
+          duration = durationValue / 60; // Convert minutes to hours
+          break;
+        case 'hours':
+          duration = durationValue;
+          break;
+      }
+    }
 
     // 2. Log extracted values
     logger.info('Values extracted from modal', {
@@ -155,10 +171,14 @@ const validateInputs = ({ channelId, question, pollType, options, privacy, durat
 
   // Validate duration if provided
   if (duration !== null) {
-    if (isNaN(duration) || duration < 1) {
+    if (isNaN(duration) || duration <= 0) {
       errors.duration_block = 'Duration must be a positive number';
-    } else if (duration > 10080) { // 1 week in minutes
-      errors.duration_block = 'Duration cannot exceed 1 week (10080 minutes)';
+    } else {
+      // Convert duration to hours for validation
+      const durationInHours = duration;
+      if (durationInHours > 168) { // 1 week maximum
+        errors.duration_block = 'Duration cannot exceed 1 week';
+      }
     }
   }
 

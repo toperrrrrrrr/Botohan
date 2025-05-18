@@ -194,7 +194,7 @@ const createPollBlocks = (poll) => {
       elements: [
         {
           type: 'mrkdwn',
-          text: `📊 Created by <@${poll.creator}> | ${getPrivacyEmoji(poll.privacy)} ${formatPrivacyText(poll.privacy)}${poll.duration ? ` | ⏰ Closes in ${poll.duration} hour${poll.duration > 1 ? 's' : ''}` : ''}`
+          text: `📊 Created by <@${poll.creator}> | ${getPrivacyEmoji(poll.privacy)} ${formatPrivacyText(poll.privacy)}${poll.duration ? ` | ⏰ Closes in ${formatDuration(poll.duration)}` : ''}`
         }
       ]
     },
@@ -426,6 +426,19 @@ const endPoll = async (client, poll) => {
       pollId: poll.id
     });
     return false;
+  }
+};
+
+// Add this helper function at the bottom with other helper functions
+const formatDuration = (durationInHours) => {
+  if (durationInHours >= 1) {
+    return `${Math.round(durationInHours)} hour${durationInHours === 1 ? '' : 's'}`;
+  } else if (durationInHours >= 1/60) {
+    const minutes = Math.round(durationInHours * 60);
+    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  } else {
+    const seconds = Math.round(durationInHours * 3600);
+    return `${seconds} second${seconds === 1 ? '' : 's'}`;
   }
 };
 

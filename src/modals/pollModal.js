@@ -187,19 +187,65 @@ const buildPollModal = (triggerId, command = {}) => {
             action_id: 'duration_input',
             is_decimal_allowed: false,
             min_value: '1',
-            max_value: '168', // One week in hours
             placeholder: {
               type: 'plain_text',
-              text: 'Enter duration in hours'
+              text: 'Enter duration'
             }
           },
           label: {
             type: 'plain_text',
-            text: 'Duration (hours)'
+            text: 'Duration'
           },
           hint: {
             type: 'plain_text',
-            text: 'Optional: Set a timer to automatically close the poll (1-168 hours, or 1 week)'
+            text: 'Optional: Set a timer to automatically close the poll'
+          }
+        },
+        {
+          type: 'input',
+          block_id: 'duration_unit_block',
+          optional: true,
+          element: {
+            type: 'static_select',
+            action_id: 'duration_unit_select',
+            placeholder: {
+              type: 'plain_text',
+              text: 'Select time unit'
+            },
+            initial_option: {
+              text: {
+                type: 'plain_text',
+                text: '⏰ Hours'
+              },
+              value: 'hours'
+            },
+            options: [
+              {
+                text: {
+                  type: 'plain_text',
+                  text: '⏱️ Minutes'
+                },
+                value: 'minutes'
+              },
+              {
+                text: {
+                  type: 'plain_text',
+                  text: '⏰ Hours'
+                },
+                value: 'hours'
+              },
+              {
+                text: {
+                  type: 'plain_text',
+                  text: '⌛ Seconds'
+                },
+                value: 'seconds'
+              }
+            ]
+          },
+          label: {
+            type: 'plain_text',
+            text: 'Time Unit'
           }
         }
       ]
