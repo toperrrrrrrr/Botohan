@@ -164,24 +164,14 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
         const scheduleTime = Math.floor(endTime.getTime() / 1000);
         
         try {
-          // Schedule the end message
+          // Schedule a trigger message that will call endPoll
           const scheduledMessage = await client.chat.scheduleMessage({
             channel: channelId,
             post_at: scheduleTime,
-            text: 'Poll ended',
-            blocks: [
-              {
-                type: 'section',
-                text: {
-                  type: 'mrkdwn',
-                  text: `🏁 The poll "*${question}*" has ended. Here are the final results:`
-                }
-              },
-              ...createResultsBlock(poll)
-            ]
+            text: `POLL_END_TRIGGER:${pollId}:${result.ts}`
           });
 
-          logger.info('End message scheduled', {
+          logger.info('End trigger scheduled', {
             pollId,
             scheduleTime,
             scheduledMessageId: scheduledMessage.scheduled_message_id
@@ -190,7 +180,7 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
           // Store scheduled message ID
           poll.scheduledMessageId = scheduledMessage.scheduled_message_id;
         } catch (scheduleError) {
-          logger.error('Error scheduling end message:', {
+          logger.error('Error scheduling end trigger:', {
             error: scheduleError.message,
             pollId,
             endTime
@@ -533,8 +523,38 @@ const formatDuration = (durationInHours) => {
   }
 };
 
+// Add message handler for poll end trigger
+const handleMessage = async ({ message, client, logger }) => {
+  if (!message.text?.startsWith('POLL_END_TRIGGER:')) return;
+
+  const [, pollId, messageTs] = message.text.split(':');
+  const poll = polls.get(pollId);
+
+  if (!poll) {
+    logger.error('Poll not found for end trigger:', { pollId });
+    return;
+  }
+
+  try {
+    // Delete the trigger message
+    await client.chat.delete({
+      channel: message.channel,
+      ts: message.ts
+    });
+
+    // End the poll with current state
+    await endPoll(client, poll, messageTs, logger);
+  } catch (error) {
+    logger.error('Error handling poll end trigger:', {
+      error: error.message,
+      pollId
+    });
+  }
+};
+
 module.exports = {
   handlePollCommand,
   handlePollSubmission,
-  handleVote
+  handleVote,
+  handleMessage
 }; 

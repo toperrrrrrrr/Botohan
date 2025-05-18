@@ -2,7 +2,7 @@ require('dotenv').config();
 const { App, ExpressReceiver } = require('@slack/bolt');
 const express = require('express');
 const path = require('path');
-const { handlePollCommand, handlePollSubmission, handleVote } = require('./src/handlers/pollHandler');
+const { handlePollCommand, handlePollSubmission, handleVote, handleMessage } = require('./src/handlers/pollHandler');
 const { handleModalSubmission } = require('./src/handlers/modalHandler');
 
 // Initialize Express receiver
@@ -118,6 +118,9 @@ app.view('poll_creation_modal', async ({ ack, body, view, client, logger }) => {
 
 // Handle vote button clicks
 app.action(/^vote_\d+$/, handleVote);
+
+// Handle poll end triggers
+app.message(/^POLL_END_TRIGGER:/, handleMessage);
 
 // Start the app
 (async () => {
