@@ -201,6 +201,28 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
   }
 };
 
+// Add this helper function to format countdown time
+const formatCountdown = (endTime) => {
+  const now = new Date();
+  const end = new Date(endTime);
+  const diffMs = end - now;
+  
+  if (diffMs <= 0) {
+    return '⏰ Poll has ended';
+  }
+
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
+
+  const parts = [];
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  parts.push(`${seconds}s`);
+
+  return `⏰ ${parts.join(' ')} remaining`;
+};
+
 const createPollBlocks = (poll) => {
   const blocks = [
     {
@@ -215,7 +237,7 @@ const createPollBlocks = (poll) => {
       elements: [
         {
           type: 'mrkdwn',
-          text: `📊 Created by <@${poll.creator}> | ${getPrivacyEmoji(poll.privacy)} ${formatPrivacyText(poll.privacy)}${poll.duration ? ` | ⏰ Closes in ${formatDuration(poll.duration)}` : ''}`
+          text: `📊 Created by <@${poll.creator}> | ${getPrivacyEmoji(poll.privacy)} ${formatPrivacyText(poll.privacy)}${poll.endTime ? ` | ${formatCountdown(poll.endTime)}` : ''}`
         }
       ]
     },
@@ -350,7 +372,7 @@ const shouldPollEnd = (poll) => {
   return now >= endTime;
 };
 
-// Modify handleVote to check for poll expiration
+// Update handleVote to refresh countdown timer
 const handleVote = async ({ ack, body, client, logger }) => {
   try {
     await ack();
@@ -391,7 +413,7 @@ const handleVote = async ({ ack, body, client, logger }) => {
       total_votes: poll.votes.size
     });
 
-    // Update poll message with current results
+    // Update poll message with current results and countdown
     const updatedBlocks = [
       ...createPollBlocks(poll)
     ];
@@ -408,6 +430,45 @@ const handleVote = async ({ ack, body, client, logger }) => {
         blocks: updatedBlocks,
         text: poll.question // Fallback text
       });
+
+      // Set up periodic countdown updates if poll has an end time
+      if (poll.endTime && !poll.updateInterval) {
+        const updateInterval = setInterval(async () => {
+          const currentPoll = polls.get(pollId);
+          if (!currentPoll || shouldPollEnd(currentPoll)) {
+            clearInterval(updateInterval);
+            if (currentPoll) {
+              await endPoll(client, currentPoll, body.message.ts);
+            }
+            return;
+          }
+
+          const updatedBlocksWithCountdown = [
+            ...createPollBlocks(currentPoll)
+          ];
+          if (currentPoll.privacy !== 'confidential') {
+            updatedBlocksWithCountdown.push(...createResultsBlock(currentPoll));
+          }
+
+          try {
+            await client.chat.update({
+              channel: currentPoll.channel,
+              ts: body.message.ts,
+              blocks: updatedBlocksWithCountdown,
+              text: currentPoll.question
+            });
+          } catch (updateError) {
+            logger.error('Error updating countdown:', {
+              error: updateError.message,
+              pollId: currentPoll.id
+            });
+            clearInterval(updateInterval);
+          }
+        }, 1000); // Update every second
+
+        // Store the interval ID in the poll object
+        poll.updateInterval = updateInterval;
+      }
 
     } catch (error) {
       logger.error('Error updating poll message:', {
@@ -430,7 +491,14 @@ const handleVote = async ({ ack, body, client, logger }) => {
   }
 };
 
+// Update endPoll to clear the update interval
 const endPoll = async (client, poll, messageTs = null) => {
+  // Clear the countdown update interval if it exists
+  if (poll.updateInterval) {
+    clearInterval(poll.updateInterval);
+    poll.updateInterval = null;
+  }
+
   const finalBlocks = [
     {
       type: 'header',
@@ -456,7 +524,6 @@ const endPoll = async (client, poll, messageTs = null) => {
 
   try {
     if (messageTs) {
-      // Update the original message if we have its timestamp
       await client.chat.update({
         channel: poll.channel,
         ts: messageTs,
@@ -464,7 +531,6 @@ const endPoll = async (client, poll, messageTs = null) => {
         text: '🏁 Poll Ended: ' + poll.question
       });
     } else {
-      // Post a new message if we don't have the original message timestamp
       await client.chat.postMessage({
         channel: poll.channel,
         blocks: finalBlocks,
