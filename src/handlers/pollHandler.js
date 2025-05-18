@@ -86,6 +86,44 @@ const handlePollCommand = async ({ command, ack, client, logger }) => {
   }
 };
 
+// Add this helper function for setting up countdown timer
+const setupCountdownTimer = async (client, poll, messageTs) => {
+  if (!poll.endTime || poll.updateInterval) return;
+
+  const updateInterval = setInterval(async () => {
+    const currentPoll = polls.get(poll.id);
+    if (!currentPoll || shouldPollEnd(currentPoll)) {
+      clearInterval(updateInterval);
+      if (currentPoll) {
+        await endPoll(client, currentPoll, messageTs);
+      }
+      return;
+    }
+
+    const updatedBlocksWithCountdown = [
+      ...createPollBlocks(currentPoll)
+    ];
+    if (currentPoll.privacy !== 'confidential') {
+      updatedBlocksWithCountdown.push(...createResultsBlock(currentPoll));
+    }
+
+    try {
+      await client.chat.update({
+        channel: currentPoll.channel,
+        ts: messageTs,
+        blocks: updatedBlocksWithCountdown,
+        text: currentPoll.question
+      });
+    } catch (updateError) {
+      console.error('Error updating countdown:', updateError);
+      clearInterval(updateInterval);
+    }
+  }, 1000); // Update every second
+
+  // Store the interval ID in the poll object
+  poll.updateInterval = updateInterval;
+};
+
 const handlePollSubmission = async ({ ack, body, view, client, logger, pollData }) => {
   try {
     // If ack function is provided (not already acknowledged), use it
@@ -124,7 +162,7 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
       creator,
       question,
       pollType,
-      options: options, // Since we removed agree-disagree, we always use the provided options
+      options: options,
       privacy,
       duration,
       votes: new Map(),
@@ -143,7 +181,7 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
       // Post poll to channel
       const result = await client.chat.postMessage({
         channel: channelId,
-        text: question, // Fallback text
+        text: question,
         blocks: pollBlocks
       });
 
@@ -159,20 +197,13 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
         duration: duration
       });
 
-      // Schedule poll end if duration is set
+      // Set up countdown timer immediately after poll is created
       if (endTime) {
-        const timeoutMs = endTime.getTime() - Date.now();
-        setTimeout(async () => {
-          const currentPoll = polls.get(pollId);
-          if (currentPoll && currentPoll.messageTs) {
-            await endPoll(client, currentPoll, currentPoll.messageTs);
-          }
-        }, timeoutMs);
+        await setupCountdownTimer(client, poll, result.ts);
         
-        logger.info('Poll end scheduled', {
+        logger.info('Countdown timer initialized', {
           pollId,
-          endTime: endTime,
-          timeoutMs
+          endTime: endTime
         });
       }
 
@@ -372,7 +403,7 @@ const shouldPollEnd = (poll) => {
   return now >= endTime;
 };
 
-// Update handleVote to refresh countdown timer
+// Update handleVote to use the setupCountdownTimer function
 const handleVote = async ({ ack, body, client, logger }) => {
   try {
     await ack();
@@ -413,7 +444,7 @@ const handleVote = async ({ ack, body, client, logger }) => {
       total_votes: poll.votes.size
     });
 
-    // Update poll message with current results and countdown
+    // Update poll message with current results
     const updatedBlocks = [
       ...createPollBlocks(poll)
     ];
@@ -428,46 +459,12 @@ const handleVote = async ({ ack, body, client, logger }) => {
         channel: poll.channel,
         ts: body.message.ts,
         blocks: updatedBlocks,
-        text: poll.question // Fallback text
+        text: poll.question
       });
 
-      // Set up periodic countdown updates if poll has an end time
+      // Ensure countdown timer is running
       if (poll.endTime && !poll.updateInterval) {
-        const updateInterval = setInterval(async () => {
-          const currentPoll = polls.get(pollId);
-          if (!currentPoll || shouldPollEnd(currentPoll)) {
-            clearInterval(updateInterval);
-            if (currentPoll) {
-              await endPoll(client, currentPoll, body.message.ts);
-            }
-            return;
-          }
-
-          const updatedBlocksWithCountdown = [
-            ...createPollBlocks(currentPoll)
-          ];
-          if (currentPoll.privacy !== 'confidential') {
-            updatedBlocksWithCountdown.push(...createResultsBlock(currentPoll));
-          }
-
-          try {
-            await client.chat.update({
-              channel: currentPoll.channel,
-              ts: body.message.ts,
-              blocks: updatedBlocksWithCountdown,
-              text: currentPoll.question
-            });
-          } catch (updateError) {
-            logger.error('Error updating countdown:', {
-              error: updateError.message,
-              pollId: currentPoll.id
-            });
-            clearInterval(updateInterval);
-          }
-        }, 1000); // Update every second
-
-        // Store the interval ID in the poll object
-        poll.updateInterval = updateInterval;
+        await setupCountdownTimer(client, poll, body.message.ts);
       }
 
     } catch (error) {
