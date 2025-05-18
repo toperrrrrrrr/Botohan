@@ -87,6 +87,13 @@ const buildPollModal = (triggerId, command = {}) => {
               type: 'plain_text',
               text: 'Select poll type'
             },
+            initial_option: {
+              text: {
+                type: 'plain_text',
+                text: '📝 Multiple Choice'
+              },
+              value: 'multiple_choice'
+            },
             options: [
               {
                 text: {
@@ -94,13 +101,6 @@ const buildPollModal = (triggerId, command = {}) => {
                   text: '📝 Multiple Choice'
                 },
                 value: 'multiple_choice'
-              },
-              {
-                text: {
-                  type: 'plain_text',
-                  text: '👍 Agree-Disagree'
-                },
-                value: 'agree_disagree'
               }
             ]
           },
@@ -180,29 +180,6 @@ const buildPollModal = (triggerId, command = {}) => {
         },
         {
           type: 'input',
-          block_id: 'duration_block',
-          optional: true,
-          element: {
-            type: 'number_input',
-            action_id: 'duration_input',
-            is_decimal_allowed: false,
-            min_value: '1',
-            placeholder: {
-              type: 'plain_text',
-              text: 'Enter duration'
-            }
-          },
-          label: {
-            type: 'plain_text',
-            text: 'Duration'
-          },
-          hint: {
-            type: 'plain_text',
-            text: 'Optional: Set a timer to automatically close the poll'
-          }
-        },
-        {
-          type: 'input',
           block_id: 'duration_unit_block',
           optional: true,
           element: {
@@ -223,6 +200,13 @@ const buildPollModal = (triggerId, command = {}) => {
               {
                 text: {
                   type: 'plain_text',
+                  text: '⌛ Seconds'
+                },
+                value: 'seconds'
+              },
+              {
+                text: {
+                  type: 'plain_text',
                   text: '⏱️ Minutes'
                 },
                 value: 'minutes'
@@ -233,19 +217,35 @@ const buildPollModal = (triggerId, command = {}) => {
                   text: '⏰ Hours'
                 },
                 value: 'hours'
-              },
-              {
-                text: {
-                  type: 'plain_text',
-                  text: '⌛ Seconds'
-                },
-                value: 'seconds'
               }
             ]
           },
           label: {
             type: 'plain_text',
             text: 'Time Unit'
+          }
+        },
+        {
+          type: 'input',
+          block_id: 'duration_block',
+          optional: true,
+          element: {
+            type: 'number_input',
+            action_id: 'duration_input',
+            is_decimal_allowed: false,
+            min_value: '1',
+            placeholder: {
+              type: 'plain_text',
+              text: 'Enter duration'
+            }
+          },
+          label: {
+            type: 'plain_text',
+            text: 'Duration'
+          },
+          hint: {
+            type: 'plain_text',
+            text: 'Optional: Set a timer to automatically close the poll'
           }
         }
       ]

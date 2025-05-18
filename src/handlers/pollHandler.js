@@ -114,6 +114,9 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
       return;
     }
 
+    // Calculate end time in milliseconds if duration is provided
+    const endTime = duration ? new Date(Date.now() + (duration * 60 * 60 * 1000)) : null;
+    
     // Create poll object
     const pollId = Date.now().toString();
     const poll = {
@@ -121,13 +124,13 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
       creator,
       question,
       pollType,
-      options: pollType === 'multiple_choice' ? options : ['👍 Agree', '👎 Disagree'],
+      options: options, // Since we removed agree-disagree, we always use the provided options
       privacy,
-      duration: duration ? parseInt(duration) : null,
+      duration,
       votes: new Map(),
       created: new Date(),
       channel: channelId,
-      endTime: duration ? new Date(Date.now() + (parseInt(duration) * 60 * 60 * 1000)) : null
+      endTime
     };
 
     // Store poll
@@ -152,8 +155,26 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
         creator,
         channel: channelId,
         messageTs: result.ts,
-        endTime: poll.endTime
+        endTime: poll.endTime,
+        duration: duration
       });
+
+      // Schedule poll end if duration is set
+      if (endTime) {
+        const timeoutMs = endTime.getTime() - Date.now();
+        setTimeout(async () => {
+          const currentPoll = polls.get(pollId);
+          if (currentPoll && currentPoll.messageTs) {
+            await endPoll(client, currentPoll, currentPoll.messageTs);
+          }
+        }, timeoutMs);
+        
+        logger.info('Poll end scheduled', {
+          pollId,
+          endTime: endTime,
+          timeoutMs
+        });
+      }
 
     } catch (error) {
       logger.error('Error posting poll:', {
@@ -324,7 +345,9 @@ const getOptionEmoji = (index) => {
 // Add a function to check if a poll should be ended
 const shouldPollEnd = (poll) => {
   if (!poll.endTime) return false;
-  return new Date() >= new Date(poll.endTime);
+  const now = new Date();
+  const endTime = new Date(poll.endTime);
+  return now >= endTime;
 };
 
 // Modify handleVote to check for poll expiration
@@ -337,12 +360,18 @@ const handleVote = async ({ ack, body, client, logger }) => {
 
     if (!poll) {
       logger.error('Poll not found:', { pollId });
+      await client.chat.postEphemeral({
+        channel: body.channel.id,
+        user: body.user.id,
+        text: "Sorry! This poll no longer exists."
+      });
       return;
     }
 
     // Check if poll should end
     if (shouldPollEnd(poll)) {
-      await endPoll(client, poll);
+      logger.info('Poll has ended, sending final results', { pollId });
+      await endPoll(client, poll, body.message.ts);
       await client.chat.postEphemeral({
         channel: poll.channel,
         user: body.user.id,
@@ -352,10 +381,22 @@ const handleVote = async ({ ack, body, client, logger }) => {
     }
 
     const userId = body.user.id;
+    
+    // Record the vote
     poll.votes.set(userId, parseInt(optionIndex));
+    logger.info('Vote recorded', {
+      pollId,
+      user: userId,
+      option: optionIndex,
+      total_votes: poll.votes.size
+    });
 
     // Update poll message with current results
-    const updatedBlocks = createPollBlocks(poll);
+    const updatedBlocks = [
+      ...createPollBlocks(poll)
+    ];
+
+    // Add results block if not confidential
     if (poll.privacy !== 'confidential') {
       updatedBlocks.push(...createResultsBlock(poll));
     }
@@ -364,13 +405,8 @@ const handleVote = async ({ ack, body, client, logger }) => {
       await client.chat.update({
         channel: poll.channel,
         ts: body.message.ts,
-        blocks: updatedBlocks
-      });
-
-      logger.info('Vote recorded', {
-        pollId,
-        user: userId,
-        option: optionIndex
+        blocks: updatedBlocks,
+        text: poll.question // Fallback text
       });
 
     } catch (error) {
@@ -378,6 +414,12 @@ const handleVote = async ({ ack, body, client, logger }) => {
         error: error.message,
         pollId,
         user: userId
+      });
+      
+      await client.chat.postEphemeral({
+        channel: poll.channel,
+        user: userId,
+        text: "Sorry! Something went wrong while recording your vote. Please try again."
       });
     }
   } catch (error) {
@@ -388,13 +430,13 @@ const handleVote = async ({ ack, body, client, logger }) => {
   }
 };
 
-const endPoll = async (client, poll) => {
+const endPoll = async (client, poll, messageTs = null) => {
   const finalBlocks = [
     {
-      type: 'section',
+      type: 'header',
       text: {
-        type: 'mrkdwn',
-        text: `*Poll Ended: ${poll.question}*`
+        type: 'plain_text',
+        text: '🏁 Poll Ended: ' + poll.question
       }
     },
     {
@@ -402,26 +444,46 @@ const endPoll = async (client, poll) => {
       elements: [
         {
           type: 'mrkdwn',
-          text: `Created by <@${poll.creator}> | ${poll.privacy} poll | Final Results`
+          text: `Created by <@${poll.creator}> | ${getPrivacyEmoji(poll.privacy)} ${formatPrivacyText(poll.privacy)} | Final Results`
         }
       ]
     },
-    createResultsBlock(poll)
+    {
+      type: 'divider'
+    },
+    ...createResultsBlock(poll)
   ];
 
   try {
-    await client.chat.postMessage({
-      channel: poll.channel,
-      text: 'Poll ended',
-      blocks: finalBlocks
-    });
+    if (messageTs) {
+      // Update the original message if we have its timestamp
+      await client.chat.update({
+        channel: poll.channel,
+        ts: messageTs,
+        blocks: finalBlocks,
+        text: '🏁 Poll Ended: ' + poll.question
+      });
+    } else {
+      // Post a new message if we don't have the original message timestamp
+      await client.chat.postMessage({
+        channel: poll.channel,
+        blocks: finalBlocks,
+        text: '🏁 Poll Ended: ' + poll.question
+      });
+    }
 
     // Clean up the poll from memory
     polls.delete(poll.id);
+    
+    logger.info('Poll ended successfully', {
+      pollId: poll.id,
+      channel: poll.channel,
+      total_votes: poll.votes.size
+    });
 
     return true;
   } catch (error) {
-    logger.error('Error posting final results:', {
+    logger.error('Error ending poll:', {
       error: error.message,
       pollId: poll.id
     });
