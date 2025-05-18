@@ -86,79 +86,15 @@ const handlePollCommand = async ({ command, ack, client, logger }) => {
   }
 };
 
-// Add this helper function for setting up countdown timer
-const setupCountdownTimer = async (client, poll, messageTs, logger) => {
-  if (!poll.endTime || poll.updateInterval) return;
-
-  const updateInterval = setInterval(async () => {
-    const currentPoll = polls.get(poll.id);
-    if (!currentPoll || shouldPollEnd(currentPoll)) {
-      clearInterval(updateInterval);
-      if (currentPoll) {
-        try {
-          await endPoll(client, currentPoll, messageTs, logger);
-        } catch (error) {
-          logger.error('Error ending poll in timer:', {
-            error: error.message,
-            pollId: currentPoll.id
-          });
-        }
-      }
-      return;
-    }
-
-    const updatedBlocksWithCountdown = [
-      ...createPollBlocks(currentPoll)
-    ];
-    if (currentPoll.privacy !== 'confidential') {
-      updatedBlocksWithCountdown.push(...createResultsBlock(currentPoll));
-    }
-
-    try {
-      await client.chat.update({
-        channel: currentPoll.channel,
-        ts: messageTs,
-        blocks: updatedBlocksWithCountdown,
-        text: currentPoll.question
-      });
-    } catch (updateError) {
-      logger.error('Error updating countdown:', {
-        error: updateError.message,
-        pollId: currentPoll.id
-      });
-      clearInterval(updateInterval);
-    }
-  }, 1000);
-
-  poll.updateInterval = updateInterval;
-
-  // Set a backup timeout to ensure poll ends
-  const timeoutMs = poll.endTime.getTime() - Date.now();
-  setTimeout(async () => {
-    const currentPoll = polls.get(poll.id);
-    if (currentPoll && !shouldPollEnd(currentPoll)) {
-      try {
-        await endPoll(client, currentPoll, messageTs, logger);
-      } catch (error) {
-        logger.error('Error ending poll in backup timeout:', {
-          error: error.message,
-          pollId: currentPoll.id
-        });
-      }
-    }
-  }, timeoutMs + 1000); // Add 1 second buffer
-};
-
 const handlePollSubmission = async ({ ack, body, view, client, logger, pollData }) => {
   try {
-    // If ack function is provided (not already acknowledged), use it
     if (typeof ack === 'function') {
       await ack();
     }
 
     const { channelId, question, pollType, options, privacy, duration, creator } = pollData;
 
-    // Check if the bot has permission to post in the channel
+    // Check channel permissions
     try {
       await client.conversations.info({
         channel: channelId
@@ -222,14 +158,44 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
         duration: duration
       });
 
-      // Set up countdown timer immediately after poll is created
+      // Schedule end message if duration is set
       if (endTime) {
-        await setupCountdownTimer(client, poll, result.ts, logger);
+        // Convert to Unix timestamp in seconds
+        const scheduleTime = Math.floor(endTime.getTime() / 1000);
         
-        logger.info('Countdown timer initialized', {
-          pollId,
-          endTime: endTime
-        });
+        try {
+          // Schedule the end message
+          const scheduledMessage = await client.chat.scheduleMessage({
+            channel: channelId,
+            post_at: scheduleTime,
+            text: 'Poll ended',
+            blocks: [
+              {
+                type: 'section',
+                text: {
+                  type: 'mrkdwn',
+                  text: `🏁 The poll "*${question}*" has ended. Here are the final results:`
+                }
+              },
+              ...createResultsBlock(poll)
+            ]
+          });
+
+          logger.info('End message scheduled', {
+            pollId,
+            scheduleTime,
+            scheduledMessageId: scheduledMessage.scheduled_message_id
+          });
+
+          // Store scheduled message ID
+          poll.scheduledMessageId = scheduledMessage.scheduled_message_id;
+        } catch (scheduleError) {
+          logger.error('Error scheduling end message:', {
+            error: scheduleError.message,
+            pollId,
+            endTime
+          });
+        }
       }
 
     } catch (error) {
@@ -239,7 +205,6 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
         channel: channelId
       });
       
-      // Clean up stored poll if posting failed
       polls.delete(pollId);
       
       await client.chat.postEphemeral({
@@ -257,26 +222,10 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
   }
 };
 
-// Add this helper function to format countdown time
-const formatCountdown = (endTime) => {
-  const now = new Date();
+// Replace formatCountdown with formatEndTime
+const formatEndTime = (endTime) => {
   const end = new Date(endTime);
-  const diffMs = end - now;
-  
-  if (diffMs <= 0) {
-    return '⏰ Poll has ended';
-  }
-
-  const hours = Math.floor(diffMs / (1000 * 60 * 60));
-  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-  const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
-
-  const parts = [];
-  if (hours > 0) parts.push(`${hours}h`);
-  if (minutes > 0) parts.push(`${minutes}m`);
-  parts.push(`${seconds}s`);
-
-  return `⏰ ${parts.join(' ')} remaining`;
+  return `⏰ Ends at ${end.toLocaleTimeString()} ${end.toLocaleDateString()}`;
 };
 
 const createPollBlocks = (poll) => {
@@ -293,7 +242,7 @@ const createPollBlocks = (poll) => {
       elements: [
         {
           type: 'mrkdwn',
-          text: `📊 Created by <@${poll.creator}> | ${getPrivacyEmoji(poll.privacy)} ${formatPrivacyText(poll.privacy)}${poll.endTime ? ` | ${formatCountdown(poll.endTime)}` : ''}`
+          text: `📊 Created by <@${poll.creator}> | ${getPrivacyEmoji(poll.privacy)} ${formatPrivacyText(poll.privacy)}${poll.endTime ? ` | ${formatEndTime(poll.endTime)}` : ''}`
         }
       ]
     },
@@ -420,12 +369,10 @@ const getOptionEmoji = (index) => {
   return optionEmojis[index] || '•';
 };
 
-// Add a function to check if a poll should be ended
+// Update shouldPollEnd to be simpler
 const shouldPollEnd = (poll) => {
   if (!poll.endTime) return false;
-  const now = new Date();
-  const endTime = new Date(poll.endTime);
-  return now >= endTime;
+  return new Date() >= new Date(poll.endTime);
 };
 
 // Update handleVote to use the setupCountdownTimer function
@@ -448,8 +395,7 @@ const handleVote = async ({ ack, body, client, logger }) => {
 
     // Check if poll should end
     if (shouldPollEnd(poll)) {
-      logger.info('Poll has ended, sending final results', { pollId });
-      await endPoll(client, poll, body.message.ts, logger);
+      logger.info('Poll has ended', { pollId });
       await client.chat.postEphemeral({
         channel: poll.channel,
         user: body.user.id,
@@ -486,11 +432,6 @@ const handleVote = async ({ ack, body, client, logger }) => {
         blocks: updatedBlocks,
         text: poll.question
       });
-
-      // Ensure countdown timer is running
-      if (poll.endTime && !poll.updateInterval) {
-        await setupCountdownTimer(client, poll, body.message.ts, logger);
-      }
 
     } catch (error) {
       logger.error('Error updating poll message:', {
