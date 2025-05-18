@@ -1,7 +1,8 @@
 const { buildPollModal } = require('../modals/pollModal');
 
-// Store polls in memory for MVP (replace with database later)
+// Store polls and their timers in memory for MVP (replace with database later)
 const polls = new Map();
+const pollTimers = new Map();
 
 const handlePollCommand = async ({ command, ack, client, logger }) => {
   logger.info('Received /botohan command', {
@@ -158,37 +159,31 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
         duration: duration
       });
 
-      // Schedule end message if duration is set
+      // Set up timer for poll end if duration is provided
       if (endTime) {
-        // Convert to Unix timestamp in seconds and subtract 5 seconds for final vote collection
-        const scheduleTime = Math.floor(endTime.getTime() / 1000) - 5;
+        const timeUntilEnd = endTime.getTime() - Date.now();
         
-        try {
-          // Schedule a trigger message that will call endPoll
-          const scheduledMessage = await client.chat.scheduleMessage({
-            channel: channelId,
-            post_at: scheduleTime,
-            text: `POLL_END_TRIGGER:${pollId}:${result.ts}`,
-            as_user: true,
-            unfurl_links: false,
-            unfurl_media: false
-          });
+        // Create a timer for the poll
+        const timer = setTimeout(async () => {
+          try {
+            await endPoll(client, poll, result.ts, logger);
+          } catch (error) {
+            logger.error('Error in poll end timer:', {
+              error: error.message,
+              pollId,
+              channel: channelId
+            });
+          }
+        }, timeUntilEnd);
 
-          logger.info('End trigger scheduled', {
-            pollId,
-            scheduleTime,
-            scheduledMessageId: scheduledMessage.scheduled_message_id
-          });
+        // Store the timer reference
+        pollTimers.set(pollId, timer);
 
-          // Store scheduled message ID
-          poll.scheduledMessageId = scheduledMessage.scheduled_message_id;
-        } catch (scheduleError) {
-          logger.error('Error scheduling end trigger:', {
-            error: scheduleError.message,
-            pollId,
-            endTime
-          });
-        }
+        logger.info('Poll end timer set', {
+          pollId,
+          endTime,
+          timeUntilEnd
+        });
       }
 
     } catch (error) {
@@ -217,13 +212,28 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
 
 // Format end time in local timezone
 const formatEndTime = (endTime) => {
-  const end = new Date(endTime);
-  return `⏰ Ends at ${end.toLocaleTimeString('en-US', { 
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-    timeZoneName: 'short'
-  })}`;
+  return `⏰ Ends ${formatTimeUntil(endTime)}`;
+};
+
+// Helper function to format time until end
+const formatTimeUntil = (endTime) => {
+  const now = Date.now();
+  const end = new Date(endTime).getTime();
+  const diff = end - now;
+
+  if (diff < 0) return 'now';
+
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+
+  if (hours > 0) {
+    return `in ${hours}h ${minutes % 60}m`;
+  } else if (minutes > 0) {
+    return `in ${minutes}m`;
+  } else {
+    return `in ${seconds}s`;
+  }
 };
 
 const createPollBlocks = (poll) => {
@@ -452,12 +462,13 @@ const handleVote = async ({ ack, body, client, logger }) => {
   }
 };
 
-// Update endPoll to include logger parameter
+// Update endPoll to clean up timers
 const endPoll = async (client, poll, messageTs = null, logger) => {
-  // Clear the countdown update interval if it exists
-  if (poll.updateInterval) {
-    clearInterval(poll.updateInterval);
-    poll.updateInterval = null;
+  // Clear the timer if it exists
+  const timer = pollTimers.get(poll.id);
+  if (timer) {
+    clearTimeout(timer);
+    pollTimers.delete(poll.id);
   }
 
   const finalBlocks = [
@@ -531,48 +542,9 @@ const formatDuration = (durationInHours) => {
   }
 };
 
-// Add message handler for poll end trigger
-const handleMessage = async ({ message, client, logger }) => {
-  if (!message.text?.startsWith('POLL_END_TRIGGER:')) return;
-
-  const [, pollId, messageTs] = message.text.split(':');
-  const poll = polls.get(pollId);
-
-  if (!poll) {
-    logger.error('Poll not found for end trigger:', { pollId });
-    return;
-  }
-
-  try {
-    // Delete the trigger message immediately
-    try {
-      await client.chat.delete({
-        channel: message.channel,
-        ts: message.ts
-      });
-    } catch (deleteError) {
-      logger.error('Error deleting trigger message:', {
-        error: deleteError.message,
-        pollId
-      });
-    }
-
-    // Wait 5 seconds to ensure we capture final votes
-    await new Promise(resolve => setTimeout(resolve, 5000));
-
-    // End the poll with current state
-    await endPoll(client, poll, messageTs, logger);
-  } catch (error) {
-    logger.error('Error handling poll end trigger:', {
-      error: error.message,
-      pollId
-    });
-  }
-};
-
 module.exports = {
   handlePollCommand,
   handlePollSubmission,
   handleVote,
-  handleMessage
+  endPoll
 }; 

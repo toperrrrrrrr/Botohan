@@ -2,7 +2,7 @@ require('dotenv').config();
 const { App, ExpressReceiver } = require('@slack/bolt');
 const express = require('express');
 const path = require('path');
-const { handlePollCommand, handlePollSubmission, handleVote, handleMessage } = require('./src/handlers/pollHandler');
+const { handlePollCommand, handlePollSubmission, handleVote } = require('./src/handlers/pollHandler');
 const { handleModalSubmission } = require('./src/handlers/modalHandler');
 
 // Initialize Express receiver
@@ -27,21 +27,6 @@ expressApp.get('/health', (req, res) => {
     status: 'ok',
     timestamp: new Date().toISOString()
   });
-});
-
-// Register the command handler
-app.command('/botohan', async ({ command, ack, client, logger }) => {
-  try {
-    await handlePollCommand({ command, ack, client, logger });
-  } catch (error) {
-    logger.error('Error in command handler:', error);
-    // Ensure we acknowledge even if there's an error
-    try {
-      await ack();
-    } catch (ackError) {
-      // Ignore if already acknowledged
-    }
-  }
 });
 
 // Handle modal submission
@@ -119,16 +104,11 @@ app.view('poll_creation_modal', async ({ ack, body, view, client, logger }) => {
 // Handle vote button clicks
 app.action(/^vote_\d+$/, handleVote);
 
-// Handle poll end triggers
-app.message(/^POLL_END_TRIGGER:/, handleMessage);
+// Handle /botohan command
+app.command('/botohan', handlePollCommand);
 
 // Start the app
 (async () => {
-  try {
-    await app.start(PORT);
-    console.log(`⚡️ Slack Bolt app is running on port ${PORT}!`);
-  } catch (error) {
-    console.error('Failed to start app:', error);
-    process.exit(1);
-  }
+  await app.start(PORT);
+  console.log(`⚡️ Bolt app is running on port ${PORT}`);
 })();
