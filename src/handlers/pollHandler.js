@@ -1,8 +1,7 @@
 const { buildPollModal } = require('../modals/pollModal');
 
-// Store polls and their timers in memory for MVP (replace with database later)
+// Store polls in memory for MVP (replace with database later)
 const polls = new Map();
-const pollTimers = new Map();
 
 const handlePollCommand = async ({ command, ack, client, logger }) => {
   logger.info('Received /botohan command', {
@@ -115,7 +114,8 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
     }
 
     // Calculate end time in milliseconds if duration is provided
-    const endTime = duration ? new Date(Date.now() + (duration * 60 * 60 * 1000)) : null;
+    const created = new Date();
+    const endTime = duration ? new Date(created.getTime() + (duration * 60 * 60 * 1000)) : null;
     
     // Create poll object
     const pollId = Date.now().toString();
@@ -128,7 +128,7 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
       privacy,
       duration,
       votes: new Map(),
-      created: new Date(),
+      created,
       channel: channelId,
       endTime
     };
@@ -159,33 +159,6 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
         duration: duration
       });
 
-      // Set up timer for poll end if duration is provided
-      if (endTime) {
-        const timeUntilEnd = endTime.getTime() - Date.now();
-        
-        // Create a timer for the poll
-        const timer = setTimeout(async () => {
-          try {
-            await endPoll(client, poll, result.ts, logger);
-          } catch (error) {
-            logger.error('Error in poll end timer:', {
-              error: error.message,
-              pollId,
-              channel: channelId
-            });
-          }
-        }, timeUntilEnd);
-
-        // Store the timer reference
-        pollTimers.set(pollId, timer);
-
-        logger.info('Poll end timer set', {
-          pollId,
-          endTime,
-          timeUntilEnd
-        });
-      }
-
     } catch (error) {
       logger.error('Error posting poll:', {
         error: error.message,
@@ -210,30 +183,31 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
   }
 };
 
-// Format end time in local timezone
-const formatEndTime = (endTime) => {
-  return `⏰ Ends ${formatTimeUntil(endTime)}`;
-};
+// Format times in Brisbane timezone
+const formatTimeInfo = (poll) => {
+  const timeZone = 'Australia/Brisbane';
+  const dateOptions = {
+    timeZone,
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  };
 
-// Helper function to format time until end
-const formatTimeUntil = (endTime) => {
-  const now = Date.now();
-  const end = new Date(endTime).getTime();
-  const diff = end - now;
-
-  if (diff < 0) return 'now';
-
-  const seconds = Math.floor(diff / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-
-  if (hours > 0) {
-    return `in ${hours}h ${minutes % 60}m`;
-  } else if (minutes > 0) {
-    return `in ${minutes}m`;
-  } else {
-    return `in ${seconds}s`;
+  const createdTime = poll.created.toLocaleString('en-AU', dateOptions);
+  let timeInfo = `📅 Created: ${createdTime}`;
+  
+  if (poll.duration) {
+    timeInfo += ` | ⏱️ Duration: ${formatDuration(poll.duration)}`;
+    if (poll.endTime) {
+      const endTime = poll.endTime.toLocaleString('en-AU', dateOptions);
+      timeInfo += ` | 🎯 Ends: ${endTime}`;
+    }
   }
+  
+  return timeInfo;
 };
 
 const createPollBlocks = (poll) => {
@@ -250,7 +224,16 @@ const createPollBlocks = (poll) => {
       elements: [
         {
           type: 'mrkdwn',
-          text: `📊 Created by <@${poll.creator}> | ${getPrivacyEmoji(poll.privacy)} ${formatPrivacyText(poll.privacy)}${poll.endTime ? ` | ${formatEndTime(poll.endTime)}` : ''}`
+          text: `📊 Created by <@${poll.creator}> | ${getPrivacyEmoji(poll.privacy)} ${formatPrivacyText(poll.privacy)}`
+        }
+      ]
+    },
+    {
+      type: 'context',
+      elements: [
+        {
+          type: 'mrkdwn',
+          text: formatTimeInfo(poll)
         }
       ]
     },
@@ -462,15 +445,8 @@ const handleVote = async ({ ack, body, client, logger }) => {
   }
 };
 
-// Update endPoll to clean up timers
+// Update endPoll to remove timer cleanup
 const endPoll = async (client, poll, messageTs = null, logger) => {
-  // Clear the timer if it exists
-  const timer = pollTimers.get(poll.id);
-  if (timer) {
-    clearTimeout(timer);
-    pollTimers.delete(poll.id);
-  }
-
   const finalBlocks = [
     {
       type: 'header',
@@ -485,6 +461,15 @@ const endPoll = async (client, poll, messageTs = null, logger) => {
         {
           type: 'mrkdwn',
           text: `Created by <@${poll.creator}> | ${getPrivacyEmoji(poll.privacy)} ${formatPrivacyText(poll.privacy)} | Final Results`
+        }
+      ]
+    },
+    {
+      type: 'context',
+      elements: [
+        {
+          type: 'mrkdwn',
+          text: formatTimeInfo(poll)
         }
       ]
     },
