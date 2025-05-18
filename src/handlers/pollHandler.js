@@ -160,15 +160,18 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
 
       // Schedule end message if duration is set
       if (endTime) {
-        // Convert to Unix timestamp in seconds
-        const scheduleTime = Math.floor(endTime.getTime() / 1000);
+        // Convert to Unix timestamp in seconds and subtract 5 seconds for final vote collection
+        const scheduleTime = Math.floor(endTime.getTime() / 1000) - 5;
         
         try {
           // Schedule a trigger message that will call endPoll
           const scheduledMessage = await client.chat.scheduleMessage({
             channel: channelId,
             post_at: scheduleTime,
-            text: `POLL_END_TRIGGER:${pollId}:${result.ts}`
+            text: `POLL_END_TRIGGER:${pollId}:${result.ts}`,
+            as_user: true,
+            unfurl_links: false,
+            unfurl_media: false
           });
 
           logger.info('End trigger scheduled', {
@@ -212,10 +215,15 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
   }
 };
 
-// Replace formatCountdown with formatEndTime
+// Format end time in local timezone
 const formatEndTime = (endTime) => {
   const end = new Date(endTime);
-  return `⏰ Ends at ${end.toLocaleTimeString()} ${end.toLocaleDateString()}`;
+  return `⏰ Ends at ${end.toLocaleTimeString('en-US', { 
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+    timeZoneName: 'short'
+  })}`;
 };
 
 const createPollBlocks = (poll) => {
@@ -536,11 +544,21 @@ const handleMessage = async ({ message, client, logger }) => {
   }
 
   try {
-    // Delete the trigger message
-    await client.chat.delete({
-      channel: message.channel,
-      ts: message.ts
-    });
+    // Delete the trigger message immediately
+    try {
+      await client.chat.delete({
+        channel: message.channel,
+        ts: message.ts
+      });
+    } catch (deleteError) {
+      logger.error('Error deleting trigger message:', {
+        error: deleteError.message,
+        pollId
+      });
+    }
+
+    // Wait 5 seconds to ensure we capture final votes
+    await new Promise(resolve => setTimeout(resolve, 5000));
 
     // End the poll with current state
     await endPoll(client, poll, messageTs, logger);
