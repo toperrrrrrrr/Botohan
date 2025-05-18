@@ -87,7 +87,7 @@ const handlePollCommand = async ({ command, ack, client, logger }) => {
 };
 
 // Add this helper function for setting up countdown timer
-const setupCountdownTimer = async (client, poll, messageTs) => {
+const setupCountdownTimer = async (client, poll, messageTs, logger) => {
   if (!poll.endTime || poll.updateInterval) return;
 
   const updateInterval = setInterval(async () => {
@@ -95,7 +95,14 @@ const setupCountdownTimer = async (client, poll, messageTs) => {
     if (!currentPoll || shouldPollEnd(currentPoll)) {
       clearInterval(updateInterval);
       if (currentPoll) {
-        await endPoll(client, currentPoll, messageTs);
+        try {
+          await endPoll(client, currentPoll, messageTs, logger);
+        } catch (error) {
+          logger.error('Error ending poll in timer:', {
+            error: error.message,
+            pollId: currentPoll.id
+          });
+        }
       }
       return;
     }
@@ -115,13 +122,31 @@ const setupCountdownTimer = async (client, poll, messageTs) => {
         text: currentPoll.question
       });
     } catch (updateError) {
-      console.error('Error updating countdown:', updateError);
+      logger.error('Error updating countdown:', {
+        error: updateError.message,
+        pollId: currentPoll.id
+      });
       clearInterval(updateInterval);
     }
-  }, 1000); // Update every second
+  }, 1000);
 
-  // Store the interval ID in the poll object
   poll.updateInterval = updateInterval;
+
+  // Set a backup timeout to ensure poll ends
+  const timeoutMs = poll.endTime.getTime() - Date.now();
+  setTimeout(async () => {
+    const currentPoll = polls.get(poll.id);
+    if (currentPoll && !shouldPollEnd(currentPoll)) {
+      try {
+        await endPoll(client, currentPoll, messageTs, logger);
+      } catch (error) {
+        logger.error('Error ending poll in backup timeout:', {
+          error: error.message,
+          pollId: currentPoll.id
+        });
+      }
+    }
+  }, timeoutMs + 1000); // Add 1 second buffer
 };
 
 const handlePollSubmission = async ({ ack, body, view, client, logger, pollData }) => {
@@ -199,7 +224,7 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
 
       // Set up countdown timer immediately after poll is created
       if (endTime) {
-        await setupCountdownTimer(client, poll, result.ts);
+        await setupCountdownTimer(client, poll, result.ts, logger);
         
         logger.info('Countdown timer initialized', {
           pollId,
@@ -424,7 +449,7 @@ const handleVote = async ({ ack, body, client, logger }) => {
     // Check if poll should end
     if (shouldPollEnd(poll)) {
       logger.info('Poll has ended, sending final results', { pollId });
-      await endPoll(client, poll, body.message.ts);
+      await endPoll(client, poll, body.message.ts, logger);
       await client.chat.postEphemeral({
         channel: poll.channel,
         user: body.user.id,
@@ -464,7 +489,7 @@ const handleVote = async ({ ack, body, client, logger }) => {
 
       // Ensure countdown timer is running
       if (poll.endTime && !poll.updateInterval) {
-        await setupCountdownTimer(client, poll, body.message.ts);
+        await setupCountdownTimer(client, poll, body.message.ts, logger);
       }
 
     } catch (error) {
@@ -488,8 +513,8 @@ const handleVote = async ({ ack, body, client, logger }) => {
   }
 };
 
-// Update endPoll to clear the update interval
-const endPoll = async (client, poll, messageTs = null) => {
+// Update endPoll to include logger parameter
+const endPoll = async (client, poll, messageTs = null, logger) => {
   // Clear the countdown update interval if it exists
   if (poll.updateInterval) {
     clearInterval(poll.updateInterval);
