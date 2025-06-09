@@ -1,7 +1,8 @@
 const { buildPollModal } = require('../modals/pollModal');
+const RedisStorage = require('../storage/redisStorage');
 
-// Store polls in memory for MVP (replace with database later)
-const polls = new Map();
+// Remove the in-memory polls Map
+// const polls = new Map();
 
 const handlePollCommand = async ({ command, ack, client, logger }) => {
   logger.info('Received /botohan command', {
@@ -133,8 +134,17 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
       endTime
     };
 
-    // Store poll
-    polls.set(pollId, poll);
+    // Store poll in Redis
+    const stored = await RedisStorage.setPoll(pollId, poll);
+    if (!stored) {
+      logger.error('Failed to store poll in Redis:', { pollId });
+      await client.chat.postEphemeral({
+        channel: channelId,
+        user: creator,
+        text: "Sorry! Something went wrong while creating your poll. Please try again."
+      });
+      return;
+    }
 
     // Create poll message blocks
     const pollBlocks = createPollBlocks(poll);
@@ -147,8 +157,9 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
         blocks: pollBlocks
       });
 
-      // Store message timestamp for updates
+      // Update poll with message timestamp
       poll.messageTs = result.ts;
+      await RedisStorage.setPoll(pollId, poll);
 
       logger.info('Poll created successfully', {
         pollId,
@@ -166,7 +177,7 @@ const handlePollSubmission = async ({ ack, body, view, client, logger, pollData 
         channel: channelId
       });
       
-      polls.delete(pollId);
+      await RedisStorage.deletePoll(pollId);
       
       await client.chat.postEphemeral({
         channel: channelId,
@@ -372,7 +383,7 @@ const handleVote = async ({ ack, body, client, logger }) => {
     await ack();
 
     const [pollId, optionIndex] = body.actions[0].value.split(':');
-    const poll = polls.get(pollId);
+    const poll = await RedisStorage.getPoll(pollId);
 
     if (!poll) {
       logger.error('Poll not found:', { pollId });
@@ -399,6 +410,8 @@ const handleVote = async ({ ack, body, client, logger }) => {
     
     // Record the vote
     poll.votes.set(userId, parseInt(optionIndex));
+    await RedisStorage.updatePollVotes(pollId, poll.votes);
+    
     logger.info('Vote recorded', {
       pollId,
       user: userId,
@@ -496,7 +509,7 @@ const endPoll = async (client, poll, messageTs = null, logger) => {
     }
 
     // Clean up the poll from memory
-    polls.delete(poll.id);
+    await RedisStorage.deletePoll(poll.id);
     
     logger.info('Poll ended successfully', {
       pollId: poll.id,
